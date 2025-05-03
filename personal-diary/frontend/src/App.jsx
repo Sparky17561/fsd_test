@@ -78,10 +78,24 @@ function AuthForm({ onSuccess }) {
   );
 }
 
-function EntryForm({ onSave, entry = null }) {
+function EntryForm({ onSave, entry = null, onCancel }) {
   const [title, setTitle] = useState(entry?.title || '');
   const [content, setContent] = useState(entry?.content || '');
   const [mood, setMood] = useState(entry?.mood || 'neutral');
+
+  // Update form fields when entry prop changes
+  useEffect(() => {
+    if (entry) {
+      setTitle(entry.title || '');
+      setContent(entry.content || '');
+      setMood(entry.mood || 'neutral');
+    } else {
+      // Reset form when entry is null
+      setTitle('');
+      setContent('');
+      setMood('neutral');
+    }
+  }, [entry]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -102,10 +116,8 @@ function EntryForm({ onSave, entry = null }) {
         // Create new entry
         const { data } = await axios.post('/entries', entryData);
         onSave(data, 'create');
-      }
-      
-      // Reset form if it's a new entry
-      if (!entry?._id) {
+        
+        // Always reset form after saving a new entry
         setTitle('');
         setContent('');
         setMood('neutral');
@@ -113,6 +125,12 @@ function EntryForm({ onSave, entry = null }) {
     } catch (err) {
       console.error('Error saving entry:', err);
       alert('Failed to save entry. Please try again.');
+    }
+  };
+
+  const handleCancel = () => {
+    if (onCancel) {
+      onCancel();
     }
   };
 
@@ -158,14 +176,21 @@ function EntryForm({ onSave, entry = null }) {
         />
       </div>
       
-      <button type="submit" className="btn-primary">
-        {entry?._id ? 'Update Entry' : 'Save Entry'}
-      </button>
+      <div className="form-actions">
+        <button type="submit" className="btn-primary">
+          {entry?._id ? 'Update Entry' : 'Save Entry'}
+        </button>
+        {entry?._id && (
+          <button type="button" className="btn-secondary" onClick={handleCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
     </form>
   );
 }
 
-function EntryCard({ entry, onEdit, onDelete }) {
+function EntryCard({ entry, onEdit, onDelete, onClick }) {
   const formattedDate = format(new Date(entry.date), 'MMMM d, yyyy - h:mm a');
   
   const getMoodEmoji = (mood) => {
@@ -178,8 +203,21 @@ function EntryCard({ entry, onEdit, onDelete }) {
     }
   };
 
+  // Stop propagation to prevent card click when clicking buttons
+  const handleEditClick = (e) => {
+    e.stopPropagation();
+    onEdit(entry);
+  };
+
+  const handleDeleteClick = (e) => {
+    e.stopPropagation();
+    if (window.confirm('Are you sure you want to delete this entry?')) {
+      onDelete(entry._id);
+    }
+  };
+
   return (
-    <div className={`entry-card mood-${entry.mood}`}>
+    <div className={`entry-card mood-${entry.mood}`} onClick={() => onClick(entry)}>
       <div className="entry-header">
         <h3>{entry.title}</h3>
         <div className="entry-mood">{getMoodEmoji(entry.mood)}</div>
@@ -191,16 +229,12 @@ function EntryCard({ entry, onEdit, onDelete }) {
           : entry.content}
       </div>
       <div className="entry-actions">
-        <button className="btn-secondary" onClick={() => onEdit(entry)}>
+        <button className="btn-secondary" onClick={handleEditClick}>
           Edit
         </button>
         <button 
           className="btn-danger" 
-          onClick={() => {
-            if (window.confirm('Are you sure you want to delete this entry?')) {
-              onDelete(entry._id);
-            }
-          }}
+          onClick={handleDeleteClick}
         >
           Delete
         </button>
@@ -222,6 +256,18 @@ function EntryDetail({ entry, onClose, onEdit, onDelete }) {
     }
   };
 
+  const handleEditClick = () => {
+    onEdit(entry);
+    onClose();
+  };
+
+  const handleDeleteClick = () => {
+    if (window.confirm('Are you sure you want to delete this entry?')) {
+      onDelete(entry._id);
+      onClose();
+    }
+  };
+
   return (
     <div className="entry-detail-modal">
       <div className={`entry-detail-content mood-${entry.mood}`}>
@@ -237,17 +283,12 @@ function EntryDetail({ entry, onClose, onEdit, onDelete }) {
           ))}
         </div>
         <div className="entry-actions">
-          <button className="btn-secondary" onClick={() => onEdit(entry)}>
+          <button className="btn-secondary" onClick={handleEditClick}>
             Edit
           </button>
           <button 
             className="btn-danger" 
-            onClick={() => {
-              if (window.confirm('Are you sure you want to delete this entry?')) {
-                onDelete(entry._id);
-                onClose();
-              }
-            }}
+            onClick={handleDeleteClick}
           >
             Delete
           </button>
@@ -265,6 +306,7 @@ function DiaryApp() {
   const [filterMood, setFilterMood] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState('newest');
+  const [showEditForm, setShowEditForm] = useState(false);
 
   useEffect(() => {
     loadEntries();
@@ -290,7 +332,9 @@ function DiaryApp() {
         e._id === savedEntry._id ? savedEntry : e
       ));
     }
+    // Clear the editing state and hide edit form
     setEditingEntry(null);
+    setShowEditForm(false);
   };
 
   const handleDeleteEntry = async (id) => {
@@ -300,6 +344,10 @@ function DiaryApp() {
       if (viewingEntry?._id === id) {
         setViewingEntry(null);
       }
+      if (editingEntry?._id === id) {
+        setEditingEntry(null);
+        setShowEditForm(false);
+      }
     } catch (err) {
       console.error('Failed to delete entry:', err);
       alert('Failed to delete entry. Please try again.');
@@ -308,12 +356,19 @@ function DiaryApp() {
 
   const handleEditEntry = (entry) => {
     setEditingEntry(entry);
+    setShowEditForm(true);
     setViewingEntry(null);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingEntry(null);
+    setShowEditForm(false);
   };
 
   const handleViewEntry = (entry) => {
     setViewingEntry(entry);
     setEditingEntry(null);
+    setShowEditForm(false);
   };
 
   // Filter entries based on mood and search term
@@ -389,10 +444,17 @@ function DiaryApp() {
             </div>
           </div>
 
-          <EntryForm 
-            onSave={handleSaveEntry} 
-            entry={editingEntry} 
-          />
+          {showEditForm ? (
+            <EntryForm 
+              onSave={handleSaveEntry} 
+              entry={editingEntry}
+              onCancel={handleCancelEdit}
+            />
+          ) : (
+            <EntryForm 
+              onSave={handleSaveEntry} 
+            />
+          )}
         </aside>
 
         <main className="entries-container">
@@ -414,13 +476,13 @@ function DiaryApp() {
           ) : (
             <div className="entries-grid">
               {sortedEntries.map(entry => (
-                <div key={entry._id} onClick={() => handleViewEntry(entry)}>
-                  <EntryCard
-                    entry={entry}
-                    onEdit={handleEditEntry}
-                    onDelete={handleDeleteEntry}
-                  />
-                </div>
+                <EntryCard
+                  key={entry._id}
+                  entry={entry}
+                  onEdit={handleEditEntry}
+                  onDelete={handleDeleteEntry}
+                  onClick={handleViewEntry}
+                />
               ))}
             </div>
           )}
